@@ -81,7 +81,7 @@ static inline void DisplayInJson(const ordered_json& data)
  *  @return -   0 on success.
  *             -1 or -errno on failure.
  */
-int mctpSockSendRecv(const std::vector<uint8_t>& requestMsg,
+int mctpSockSendRecv(std::vector<uint8_t>& requestMsg,
                      std::vector<uint8_t>& responseMsg, bool pldmVerbose);
 
 class CommandInterface
@@ -91,7 +91,7 @@ class CommandInterface
     explicit CommandInterface(const char* type, const char* name,
                               CLI::App* app) :
         pldmType(type),
-        commandName(name), mctp_eid(PLDM_ENTITY_ID), pldmVerbose(false),
+        commandName(name), mctp_eid(PLDM_ENTITY_ID), pldmVerbose(true),
         instanceId(0)
     {
         app->add_option("-m,--mctp_eid", mctp_eid, "MCTP endpoint ID");

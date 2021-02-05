@@ -72,6 +72,7 @@ class GetPDR : public CommandInterface
 
         if (rc != PLDM_SUCCESS || completionCode != PLDM_SUCCESS)
         {
+            std::cerr << "GetPDR Command Error\n";
             std::cerr << "Response Message Error: "
                       << "rc=" << rc << ",cc=" << (int)completionCode
                       << std::endl;

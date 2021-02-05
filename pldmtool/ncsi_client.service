@@ -1,0 +1,10 @@
+[Unit]
+Description=NCSI Client demultiplexer daemon
+
+[Service]
+Restart=always
+ExecStart=/usr/bin/ncsi_client
+SyslogIdentifier=the_client
+
+[Install]
+WantedBy=multi-user.target

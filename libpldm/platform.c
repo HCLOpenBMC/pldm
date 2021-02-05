@@ -1,5 +1,6 @@
 #include <endian.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "platform.h"
 
@@ -356,6 +357,15 @@ int decode_get_pdr_resp(const struct pldm_msg *msg, size_t payload_length,
 	}
 
 	*completion_code = msg->payload[0];
+
+       fprintf(stderr, "\nReceiving the PLDM response with length: %d\n", payload_length);
+    for (size_t i = 0; i < payload_length; ++i) {
+        if (i && !(i%4))
+            fprintf(stderr, "\n%d: ", i);
+        fprintf(stderr, "0x%02x ", *(char*)(completion_code+i));
+    }
+    fprintf(stderr, "\n");
+
 	if (PLDM_SUCCESS != *completion_code) {
 		return PLDM_SUCCESS;
 	}

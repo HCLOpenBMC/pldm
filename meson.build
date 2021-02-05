@@ -1,9 +1,8 @@
 project('pldm', ['c', 'cpp'],
         version: '0.1', meson_version: '>=0.53.2',
         default_options: [
-          'warning_level=3',
           'default_library=shared',
-          'werror=true',
+          'werror=false',
           'cpp_std=c++17'
         ])
 
@@ -98,7 +97,20 @@ configure_file(
   install_dir: systemd_system_unit_dir,
   output: 'pldmd.service',
 )
-
+configure_file(
+  copy: true,
+  input: 'pldmtool/ncsi.service',
+  install: true,
+  install_dir: systemd_system_unit_dir,
+  output: 'ncsi.service',
+)
+configure_file(
+  copy: true,
+  input: 'pldmtool/ncsi_client.service',
+  install: true,
+  install_dir: systemd_system_unit_dir,
+  output: 'ncsi_client.service',
+)
 subdir('pldmtool')
 
 subdir('configurations')

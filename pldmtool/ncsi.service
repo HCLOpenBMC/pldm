@@ -1,0 +1,10 @@
+[Unit]
+Description=NCSI demultiplexer daemon
+
+[Service]
+Restart=always
+ExecStart=/usr/bin/ncsitool
+SyslogIdentifier=ncsitool
+
+[Install]
+WantedBy=multi-user.target
