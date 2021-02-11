@@ -217,7 +217,7 @@ int main(int argc, char** argv)
     struct sockaddr_un addr
     {};
     addr.sun_family = AF_UNIX;
-    const char path[] = "\0mctp-mux";
+    const char path[] = "\0ncsi-mux";
     memcpy(addr.sun_path, path, sizeof(path) - 1);
     int result = connect(socketFd(), reinterpret_cast<struct sockaddr*>(&addr),
                          sizeof(path) + sizeof(addr.sun_family) - 1);

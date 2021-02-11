@@ -11,6 +11,14 @@
 
 #include <exception>
 
+#include "ncsi_util.hpp"
+
+using namespace phosphor::network;
+using namespace phosphor::network::ncsi;
+
+extern int ncsi_data_len;
+extern char *ncsi_data;
+
 namespace pldmtool
 {
 
@@ -37,11 +45,27 @@ void printBuffer(const std::vector<uint8_t>& buffer, bool pldmVerbose)
  * Initialize the socket, send pldm command & recieve response from socket
  *
  */
-int mctpSockSendRecv(const std::vector<uint8_t>& requestMsg,
+int mctpSockSendRecv(std::vector<uint8_t>& requestMsg,
                      std::vector<uint8_t>& responseMsg, bool pldmVerbose)
 {
 
-    const char devPath[] = "\0mctp-mux";
+    int package = 0;
+    int channel = 0;
+    int ifindex = 2;
+    int opcode  = 81;
+    short payload_length = 12;
+    uint8_t* payload = &requestMsg[0];
+
+    int rc = sendCommand(ifindex, package, channel, opcode, payload_length, payload);
+
+
+    if(pldmVerbose)
+    {
+        std::cout<< "Nsci responce got it.. "<< rc << "\n";
+    }
+    responseMsg[0] = 1;
+
+/*    const char devPath1[] = "\0ncsi-mux";
     int returnCode = 0;
 
     int sockFd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
@@ -57,11 +81,11 @@ int mctpSockSendRecv(const std::vector<uint8_t>& requestMsg,
     {};
     addr.sun_family = AF_UNIX;
 
-    memcpy(addr.sun_path, devPath, sizeof(devPath) - 1);
+    memcpy(addr.sun_path, devPath1, sizeof(devPath1) - 1);
 
     CustomFD socketFd(sockFd);
     int result = connect(socketFd(), reinterpret_cast<struct sockaddr*>(&addr),
-                         sizeof(devPath) + sizeof(addr.sun_family) - 1);
+                         sizeof(devPath1) + sizeof(addr.sun_family) - 1);
     if (-1 == result)
     {
         returnCode = -errno;
@@ -95,6 +119,7 @@ int mctpSockSendRecv(const std::vector<uint8_t>& requestMsg,
 
     // Read the response from socket
     ssize_t peekedLength = recv(socketFd(), nullptr, 0, MSG_TRUNC | MSG_PEEK);
+    Logger(pldmVerbose, "REad to socket successful : peekedLength = ", peekedLength);
     if (0 == peekedLength)
     {
         std::cerr << "Socket is closed : peekedLength = " << peekedLength
@@ -146,12 +171,15 @@ int mctpSockSendRecv(const std::vector<uint8_t>& requestMsg,
     }
 
     Logger(pldmVerbose, "Shutdown Socket successful :  RC = ", returnCode);
+    */
+
+
     return PLDM_SUCCESS;
 }
 
 void CommandInterface::exec()
 {
-    static constexpr auto pldmObjPath = "/xyz/openbmc_project/pldm";
+    /*static constexpr auto pldmObjPath = "/xyz/openbmc_project/pldm";
     static constexpr auto pldmRequester = "xyz.openbmc_project.PLDM.Requester";
     auto& bus = pldm::utils::DBusHandler::getBus();
     try
@@ -169,7 +197,8 @@ void CommandInterface::exec()
         std::cerr << "GetInstanceId D-Bus call failed, MCTP id = " << mctp_eid
                   << ", error = " << e.what() << "\n";
         return;
-    }
+    }*/
+    instanceId =0;
     auto [rc, requestMsg] = createRequestMsg();
     if (rc != PLDM_SUCCESS)
     {
@@ -179,7 +208,28 @@ void CommandInterface::exec()
     }
 
     std::vector<uint8_t> responseMsg;
-    rc = pldmSendRecv(requestMsg, responseMsg);
+ //   rc = pldmSendRecv(requestMsg, responseMsg);
+
+    bool pldmVerbose = true;
+
+    Logger(pldmVerbose, "Request Message:", "");
+    printBuffer(requestMsg, pldmVerbose);
+
+     int package = 0;
+    int channel = 0;
+    int ifindex = 2;
+    int opcode  = 81;
+    short payload_length = 12;
+    uint8_t* payload = &requestMsg[0];
+
+    sendCommand(ifindex, package, channel, opcode, payload_length, payload);
+
+    printf("NCSI Response Payload length = %d\n", ncsi_data_len);
+    printf("Response Payload:\n");
+    for (int i = 0; i < ncsi_data_len; ++i) {
+        printf("0x%02x ", *(ncsi_data+i));
+    }   
+    printf("\n");
 
     if (rc != PLDM_SUCCESS)
     {
@@ -200,7 +250,7 @@ int CommandInterface::pldmSendRecv(std::vector<uint8_t>& requestMsg,
     requestMsg.insert(requestMsg.begin(), MCTP_MSG_TYPE_PLDM);
     requestMsg.insert(requestMsg.begin(), mctp_eid);
 
-    bool mctpVerbose = pldmVerbose;
+    bool mctpVerbose = true;
 
     // By default enable request/response msgs for pldmtool raw commands.
     if (CommandInterface::pldmType == "raw")
