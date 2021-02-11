@@ -1,9 +1,8 @@
 project('pldm', ['c', 'cpp'],
         version: '0.1', meson_version: '>=0.53.2',
         default_options: [
-          'warning_level=3',
           'default_library=shared',
-          'werror=true',
+          'werror=false',
           'cpp_std=c++17'
         ])
 
@@ -43,6 +42,7 @@ sdeventplus = dependency('sdeventplus')
 systemd = dependency('systemd')
 
 subdir('libpldm')
+subdir('libncsi')
 
 if get_option('libpldm-only').disabled()
 
