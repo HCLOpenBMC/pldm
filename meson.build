@@ -1,9 +1,8 @@
 project('pldm', ['c', 'cpp'],
         version: '0.1', meson_version: '>=0.53.2',
         default_options: [
-          'warning_level=3',
           'default_library=shared',
-          'werror=true',
+          'werror=false',
           'cpp_std=c++17'
         ])
 
@@ -27,10 +26,8 @@ if get_option('oem-ibm').enabled()
   conf_data.set_quoted('FILE_TABLE_JSON', '/usr/share/pldm/fileTable.json')
   conf_data.set_quoted('LID_RUNNING_DIR', '/var/lib/phosphor-software-manager/hostfw/running')
   conf_data.set_quoted('LID_ALTERNATE_DIR', '/var/lib/phosphor-software-manager/hostfw/alternate')
-  conf_data.set_quoted('LID_STAGING_DIR', '/var/lib/phosphor-software-manager/hostfw/staging')
   conf_data.set_quoted('LID_RUNNING_PATCH_DIR', '/usr/local/share/hostfw/running')
   conf_data.set_quoted('LID_ALTERNATE_PATCH_DIR', '/usr/local/share/hostfw/alternate')
-  conf_data.set_quoted('LID_STAGING_DIR', '/var/lib/phosphor-software-manager/hostfw/staging')
   conf_data.set('DMA_MAXSIZE', get_option('oem-ibm-dma-maxsize'))
   add_global_arguments('-DOEM_IBM', language : 'c')
   add_global_arguments('-DOEM_IBM', language : 'cpp')
@@ -39,12 +36,8 @@ configure_file(output: 'config.h',
   configuration: conf_data
 )
 
-phosphor_dbus_interfaces = dependency('phosphor-dbus-interfaces')
-sdbusplus = dependency('sdbusplus')
-sdeventplus = dependency('sdeventplus')
-systemd = dependency('systemd')
-
 subdir('libpldm')
+subdir('libncsi')
 
 if get_option('libpldm-only').disabled()
 
@@ -55,8 +48,8 @@ libpldmutils = library(
   version: meson.project_version(),
   dependencies: [
       libpldm,
-      phosphor_dbus_interfaces,
-      sdbusplus,
+      dependency('phosphor-dbus-interfaces'),
+      dependency('sdbusplus'),
   ],
   install: true,
   include_directories: include_directories(libpldmutils_headers),
@@ -69,12 +62,13 @@ subdir('libpldmresponder')
 
 deps = [
   libpldm,
+  libncsi,
   libpldmutils,
   libpldmresponder,
   libpldmutils,
-  sdbusplus,
-  sdeventplus,
-  phosphor_dbus_interfaces
+  dependency('sdbusplus'),
+  dependency('sdeventplus'),
+  dependency('phosphor-dbus-interfaces')
 ]
 
 executable(
@@ -89,21 +83,26 @@ executable(
   install: true,
   install_dir: get_option('bindir'))
 
+
+executable(
+  'fw_update_test',
+  'fw_update_test.cpp',
+  implicit_include_directories: false,
+  dependencies: deps,
+  install: true,
+  install_dir: get_option('bindir'))
+
+systemd = dependency('systemd')
 systemd_system_unit_dir = systemd.get_pkgconfig_variable(
     'systemdsystemunitdir',
     define_variable: ['prefix', get_option('prefix')])
-
 configure_file(
   copy: true,
-  input: 'pldmd/service_files/pldmd.service',
+  input: 'pldmd/pldmd.service',
   install: true,
   install_dir: systemd_system_unit_dir,
   output: 'pldmd.service',
 )
-
-if get_option('oem-ibm').enabled()
-  subdir('oem/ibm/service_files')
-endif
 
 subdir('pldmtool')
 
