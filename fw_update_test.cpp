@@ -1,8 +1,22 @@
-#include <string.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+#include <syslog.h>
+#include <string.h>
+#include <pthread.h>
+#include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+
+#include <string.h>
+#include <time.h>
 
 #include <iostream>
 #include <array>
@@ -15,9 +29,6 @@
 
 #include "libncsi/ncsi_util.hpp"
 
-////
-
-#include <arpa/inet.h>
 #include <linux/if_packet.h>
 #include <stdio.h>
 #include <string.h>
@@ -35,7 +46,7 @@
 #define MY_DEST_MAC5	0xff
 
 #define DEFAULT_IF	"eth0"
-#define BUF_SIZ		1024
+#define BUF_SIZ		1500
 
 
 typedef struct {
@@ -276,7 +287,7 @@ int init_device_id_records(pldm_fw_pkg_hdr_t** pFwPkgHdr, int *pOffset)
 		printf("DevRec[%d].length=%d, processed=%d\n", i,
 				pDevIdRec->pRecords->recordLength,
 				subOffset-*pOffset);
-		printDevIdRec((*pFwPkgHdr), i);
+//		printDevIdRec((*pFwPkgHdr), i);
 
 		// update offset for next deviceRecord
 		*pOffset += pDevIdRec->pRecords->recordLength;
@@ -306,7 +317,7 @@ int init_component_img_info(pldm_fw_pkg_hdr_t** pFwPkgHdr, int *pOffset)
 	for (i=0; i<(*pFwPkgHdr)->componentImageCnt; ++i)
 	{
 		(*pFwPkgHdr)->pCompImgInfo[i] = (pldm_component_img_info_t *)((*pFwPkgHdr)->rawHdrBuf + *pOffset);
-		printComponentImgInfo((*pFwPkgHdr), i);
+//		printComponentImgInfo((*pFwPkgHdr), i);
 
 
 		// move pointer to next Component image, taking int account of variable
@@ -354,7 +365,7 @@ init_pkg_hdr_info(char *path, pldm_fw_pkg_hdr_t** pFwPkgHdr, int *pOffset)
 {
 	FILE *fp;
 	int rcnt, size;
-	size = 1024;
+	struct stat buf;
 
 	// Open the file exclusively for read
 	fp = fopen(path, "r");
@@ -363,6 +374,8 @@ init_pkg_hdr_info(char *path, pldm_fw_pkg_hdr_t** pFwPkgHdr, int *pOffset)
 		return -1;
 	}
 
+	stat(path, &buf);
+	size = buf.st_size;
 
 	// allocate pointer structure to access fw pkg header
 	*pFwPkgHdr = (pldm_fw_pkg_hdr_t *)calloc(1, sizeof(pldm_fw_pkg_hdr_t));
@@ -372,7 +385,6 @@ init_pkg_hdr_info(char *path, pldm_fw_pkg_hdr_t** pFwPkgHdr, int *pOffset)
 		return -1;
 	}
 
-	printf("Size : %d\n", size);
 	// allocate actual buffer to store fw package header
 	(*pFwPkgHdr)->rawHdrBuf = (unsigned char *)calloc(1, size);
 	if (!(*pFwPkgHdr)->rawHdrBuf) {
@@ -392,17 +404,8 @@ init_pkg_hdr_info(char *path, pldm_fw_pkg_hdr_t** pFwPkgHdr, int *pOffset)
 	}
 	fclose(fp);
 
-	printf("Read count : %d\n", rcnt);
-
-	printf("Val :"); 
-	for(int i=0; i<size; i++)
-	{
-		printf("%x\t", (*pFwPkgHdr)->rawHdrBuf[i]);
-	}
-	printf("\n"); 
-
 	(*pFwPkgHdr)->phdrInfo = (pldm_fw_pkg_hdr_info_t *)(*pFwPkgHdr)->rawHdrBuf;
-	printHdrInfo((*pFwPkgHdr)->phdrInfo, 1);
+//	printHdrInfo((*pFwPkgHdr)->phdrInfo, 1);
 	*pOffset += offsetof(pldm_fw_pkg_hdr_info_t, versionString) +
 		(*pFwPkgHdr)->phdrInfo->versionStringLength;
 
@@ -442,9 +445,6 @@ int pldm_parse_fw_pkg(pldm_fw_pkg_hdr_t **pFwPkgHdr, char *path) {
 		goto error_exit;
 	}
 
-	printf("Offset : %d\n", offset);
-	printf(" ** Addr of CompInfo1..  = %u\n", (*pFwPkgHdr)->pCompImgInfo[0]);
-
 	// pkg header checksum
 	(*pFwPkgHdr)->pkgHdrChksum = *(uint32_t *)((*pFwPkgHdr)->rawHdrBuf+ offset);
 	offset += sizeof(uint32_t);
@@ -463,7 +463,7 @@ error_exit:
 	return -1;
 }
 
-int sendNcsiCommand(uint8_t opcode, size_t payload_len, uint8_t *payload, char *recvbuf)
+int sendNcsiCommand(uint8_t opcode, size_t payload_len, uint8_t *payload, char *recvbuf, int extra_bits)
 {
 	int sockfd;
 	struct ifreq if_idx;
@@ -477,7 +477,6 @@ int sendNcsiCommand(uint8_t opcode, size_t payload_len, uint8_t *payload, char *
 	socklen_t len;
 	short int etherTypeT = htons(0x88F8);
 	int retval = 0;
-	int j = 0;
 
 	/* Get interface name */
 	strcpy(ifName, DEFAULT_IF);
@@ -517,20 +516,27 @@ int sendNcsiCommand(uint8_t opcode, size_t payload_len, uint8_t *payload, char *
 	eh->ether_type = htons(0x88f8);
 	tx_len += sizeof(struct ether_header);
 
-       // uint8_t payload1[] = {128, 2, 17, 1, 0, 1};
-       // payload_len = 6;
+        //uint8_t payload1[] = {128, 2, 17, 1, 0, 1};
+    //    payload_len = 24;
 
 	NCSI_Command_Packet *ptr = (NCSI_Command_Packet*) (sendbuf+tx_len);
 	ptr->MC_ID = 0x00;
 	ptr->Header_Revision = 0x01;
-	ptr->IID = 0xaa;
+	ptr->IID = 0x01;
 	ptr->Command = opcode;
 	ptr->Channel_ID = 0x00;
 	ptr->Payload_Length = htons(payload_len);
 	tx_len += sizeof(NCSI_Command_Packet);
 
-	memcpy( (sendbuf+tx_len), payload, payload_len);
-	tx_len += payload_len; 
+	memcpy((sendbuf+tx_len), payload, payload_len);
+	tx_len += payload_len;
+
+        tx_len += extra_bits;
+
+        if((opcode == 0x57) && (tx_len < 62))
+        { 
+	    tx_len += (62 - tx_len);
+        } 
 
 	/* Index of the network device */
 	//socket_address.sll_ifindex = if_idx.ifr_ifindex;
@@ -545,25 +551,19 @@ int sendNcsiCommand(uint8_t opcode, size_t payload_len, uint8_t *payload, char *
 	socket_address.sll_addr[4] = MY_DEST_MAC4;
 	socket_address.sll_addr[5] = MY_DEST_MAC5;
 
-        printf("IF Name to Idx : %d\n", if_nametoindex(ifName));
-	printf("sendBuf :");
-	for(int i=0; i<tx_len; i++)
-	{
-		printf("0x%02x\t", sendbuf[i]);
-	}          
-	printf("\n");
-       
-        printf("Tx len = %d\n", tx_len);
+        //printf("Tx len = %d\n", tx_len);
+         
 	/* Send packet */
-	if (sendto(sockfd, sendbuf, tx_len, 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll)) < 0)
+	retval = sendto(sockfd, sendbuf, tx_len, 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll));
+	if (retval < 0)
 	{
-		printf("Send failed\n");
+		printf("Send failed. Ret Val = %d\n", retval);
 		return -1;
 	}
 	while(1)
 	{
                 memset(recvbuf, 0x00, BUF_SIZ);
-		retval = recvfrom(sockfd, recvbuf, BUF_SIZ, 0, (struct sockaddr*)&socket_address, &len);
+		retval = recvfrom(sockfd, recvbuf, BUF_SIZ, 0,  (struct sockaddr*)&socket_address, &len);
 		if(retval > 0)
 		{
 			ETHER_PACKET *ether_packet = (ETHER_PACKET*)recvbuf;
@@ -571,14 +571,15 @@ int sendNcsiCommand(uint8_t opcode, size_t payload_len, uint8_t *payload, char *
 			if(ether_packet->ether_type == etherTypeT)
 			{
 
-				if(recvbuf[18] == 0xd1)
+				if(recvbuf[18] == 0xd1 || recvbuf[18] == 0xd6 || recvbuf[18] == 0xd7)
 				{
-					printf("Recvd Buffer in ether type - 0x88F8 : ");
+				/*	printf("Recvd Buffer in ether type - 0x88F8 : ");
 					for(j=0; j<100; j++)
 					{
-						printf("%x\t", recvbuf[j]);
+						printf("0x%02x\t", recvbuf[j]);
 					}
 					printf("\n");
+                                        printf("0x%02x\n", recvbuf[18]); */
 					break;
 				}
                                   
@@ -586,6 +587,7 @@ int sendNcsiCommand(uint8_t opcode, size_t payload_len, uint8_t *payload, char *
 		}
 	}
 
+        close(sockfd);
 	return 0;
 }
 
@@ -605,22 +607,23 @@ void setPldmTimeout(int pldmCmd, int *timeout_sec)
 // PLDM opcode, as well as the entire cmd field in pldmReq
 int ncsiGetPldmCmd(char recvbuf[BUF_SIZ],  pldm_cmd_req *pldmReq)
 {
-  // NCSI response contains at least 4 bytes of Reason code and
+	// NCSI response contains at least 4 bytes of Reason code and
   //   Response code. 
   if (recvbuf[PAYLOAD_LEN] <= 4) {  //KUMAR - DOUBT
     // empty response, no PLDM payload
-    return -1; 
+     printf("Recv buf payloadlen %d\n", recvbuf[PAYLOAD_LEN]);
+     return -1; 
   }
 
   pldmReq->payload_size = recvbuf[PAYLOAD_LEN] - 4; // account for response and reason code
-  memcpy((char *)&(pldmReq->common[0]), (char*)(recvbuf[PAYLOAD_START]), pldmReq->payload_size);
+  memcpy((char *)&(pldmReq->common[0]), (char*)&(recvbuf[PAYLOAD_START]), pldmReq->payload_size);
 
   // PLDM cmd byte is the 3rd byte of PLDM header
   return pldmReq->common[PLDM_CMD_OFFSET];
 }
 
 
-static int handlePldmReqFwData(pldm_fw_pkg_hdr_t *pkgHdr, pldm_cmd_req *pCmd, pldm_response *pldmRes)
+static int handlePldmReqFwData(pldm_fw_pkg_hdr_t *pkgHdr, pldm_cmd_req *pCmd, pldm_response **pldmRes)
 {
   PLDM_RequestFWData_t *pReqDataCmd = (PLDM_RequestFWData_t *)pCmd->payload;
   // for now assumes  it's always component 0
@@ -628,33 +631,38 @@ static int handlePldmReqFwData(pldm_fw_pkg_hdr_t *pkgHdr, pldm_cmd_req *pCmd, pl
        (unsigned char*)(pkgHdr->rawHdrBuf + pkgHdr->pCompImgInfo[0]->locationOffset);
   uint32_t componentSize = pkgHdr->pCompImgInfo[0]->size;
 
+/*  int len = 1024 - pReqDataCmd->length;
+  pReqDataCmd->length = pReqDataCmd->length + len;
+  printf("Len = %d\n",  pReqDataCmd->length); */
+  
   // calculate how much FW data is left to transfer and if any padding is needed
   int compBytesLeft = componentSize - pReqDataCmd->offset;
   int numPaddingNeeded = pReqDataCmd->length > compBytesLeft ?
                    (pReqDataCmd->length - compBytesLeft) : 0;
 
+//  printf("Padding needed :%d\n", numPaddingNeeded);
 
   printf("\r%s offset = 0x%x, length = 0x%x, compBytesLeft=%d, numPadding=%d",
          __FUNCTION__, pReqDataCmd->offset, pReqDataCmd->length, compBytesLeft,
          numPaddingNeeded);
   fflush(stdout);
 
-  memcpy(pldmRes->common, pCmd->common, PLDM_COMMON_REQ_LEN);
+  memcpy((*pldmRes)->common, pCmd->common, PLDM_COMMON_REQ_LEN);
+  
   // clear Req bit in PLDM response header
-  pldmRes->common[PLDM_IID_OFFSET] &= PLDM_RESP_MASK;
+  (*pldmRes)->common[PLDM_IID_OFFSET] &= PLDM_RESP_MASK;
   // hard code success for now, need to check length in the future
-  pldmRes->common[PLDM_CC_OFFSET] = CC_SUCCESS;
-
-
+  (*pldmRes)->common[PLDM_CC_OFFSET] = CC_SUCCESS;
+ 
   if (numPaddingNeeded > 0) {
     printf("%s %d bytes padding added\n", __FUNCTION__, numPaddingNeeded);
-    memcpy(pldmRes->response, pComponent + pReqDataCmd->offset, compBytesLeft);
-    memset(pldmRes->response + compBytesLeft, 0, numPaddingNeeded);
+    memcpy((*pldmRes)->response, (pComponent + pReqDataCmd->offset), compBytesLeft);
+    memset((*pldmRes)->response + compBytesLeft, 0, numPaddingNeeded);
   } else {
-    memcpy(pldmRes->response, pComponent + pReqDataCmd->offset, pReqDataCmd->length);
+    memcpy((*pldmRes)->response, (pComponent + pReqDataCmd->offset), pReqDataCmd->length);
   }
-  pldmRes->resp_size = PLDM_COMMON_RES_LEN + pReqDataCmd->length;
-
+  (*pldmRes)->resp_size = PLDM_COMMON_RES_LEN + pReqDataCmd->length;
+  
   return 0;
 }
 
@@ -716,6 +724,19 @@ static int handlePldmFwApplyComplete(pldm_cmd_req *pCmd, pldm_response *pRes)
 }
 
 
+void genReqCommonFields(PldmType type, PldmFWCmds cmd, uint8_t *common)
+{
+  uint8_t iid = 0;
+
+  gPldm_iid = (gPldm_iid + 1) & 0x1f;;
+  iid = gPldm_iid;
+
+  common[PLDM_IID_OFFSET]  = 0x80 | (iid & 0x1f);
+  common[PLDM_TYPE_OFFSET] = type;
+  common[PLDM_CMD_OFFSET]  = cmd;
+}
+
+
 const char *
 pldm_fw_cmd_to_name(PldmFWCmds cmd)
 {
@@ -744,10 +765,10 @@ void dbgPrintCdb(pldm_cmd_req *cdb)
   }
   printf("\n");
 
-  printf("\n   iid=%d, cmd=0x%x (%s)\n\n",
+/*  printf("\n   iid=%d, cmd=0x%x (%s)\n\n",
              (cdb->common[PLDM_IID_OFFSET]) & 0x1f,
              cdb->common[PLDM_CMD_OFFSET],
-             (cdb->common[PLDM_CMD_OFFSET]));
+             pldm_fw_cmd_to_name(cdb->common[PLDM_CMD_OFFSET]));*/
 }
 
 
@@ -760,7 +781,7 @@ int pldmFwUpdateCmdHandler(pldm_fw_pkg_hdr_t *pkgHdr, pldm_cmd_req *pCmd, pldm_r
   // need to check cmd validity
   switch (cmd) {
     case CMD_REQUEST_FIRMWARE_DATA:
-      ret = handlePldmReqFwData(pkgHdr, pCmd, pRes);
+      ret = handlePldmReqFwData(pkgHdr, pCmd, &pRes);
       break;                     
     case CMD_TRANSFER_COMPLETE:
       printf("handle CMD_TRANSFER_COMPLETE\n");
@@ -792,18 +813,16 @@ int main()
 	uint8_t componentImageSetVersionString[MAX_VERSION_STRING_LEN];
 
 	pldm_msg* responsePtr;
-	size_t payloadLength; 
 	uint8_t cc = 0;
 	uint16_t val1;
 	uint8_t val2;
 	uint8_t comp_res;
 	uint8_t comp_rescode;
-	uint8_t instanceId = 0;
+	uint8_t instanceId = 1;
+        uint32_t update_options_flag;
+        uint16_t EstimatedTimeBefore_sending;
         int pldmCmdStatus = 0;
 
-	int package = 0;
-	int channel = 0;
-	int ifindex = 2;
 	uint8_t opcode  = 0x51; 
 	uint8_t opcode1  = 0x56; 
 	uint8_t opcode2  = 0x57; 
@@ -813,7 +832,7 @@ int main()
 	pldm_fw_pkg_hdr_t *pFwPkgHdr;
         pldm_cmd_req pldmReq = {0};
         pldm_response *pldmRes = NULL;
-	int pldm_bufsize = 1550;
+	int pldm_bufsize = 1024;
 	char path[] = "/tmp/FB_0000000006.pldm";
 
         pldmRes = (pldm_response*)calloc(1, sizeof(pldm_response));
@@ -827,7 +846,7 @@ int main()
 	int ret = pldm_parse_fw_pkg(&pFwPkgHdr, path);
 	if(ret == -1)
 	{
-		printf("Error in pldm parse fw pkg \n");
+		printf("Error in pldm parse fw pkg.. \n");
 		return -1;
 	}
 
@@ -852,22 +871,6 @@ int main()
 	size_t payload_size = PLDM_COMMON_REQ_LEN +
 		offsetof(PLDM_RequestUpdate_t, componentImageSetVersionString) + componentImageSetVersionStringLength;
 
-	printf("Instance Id : %d\n", instanceId);
-	printf("pldm buf size : %d\n", pldm_bufsize);
-	printf("component Image Count : %d\n", pFwPkgHdr->componentImageCnt);
-	printf("packageDataLength : %x\n", packageDataLength);
-
-	printf("componentImageSetVersionStringType : %x\n", componentImageSetVersionStringType);
-	printf("componentImageSetVersionStringLength : %x\n", componentImageSetVersionStringLength);
-
-	printf("componentImageSetVersionString : ");
-	for(int i=0; i<0xe; i++)
-	{
-		printf("%x\t", componentImageSetVersionString[i]);
-	}
-	printf("\n");
-	printf("payload_size : %d\n", payload_size);
-
 	uint8_t requestMsg[sizeof(pldm_msg_hdr) + payload_size];        
 	auto request = reinterpret_cast<pldm_msg*>(requestMsg);
 
@@ -875,37 +878,22 @@ int main()
 			instanceId, pldm_bufsize, pFwPkgHdr->componentImageCnt, 1, packageDataLength, componentImageSetVersionStringType,
 			componentImageSetVersionStringLength, componentImageSetVersionString, componentImageSetVersionStringLength, request);
 
-	printf("RC = %d\n", rc); 
-	printf("Request Payload:\n");
-	for (int i = 0; i < payload_size; ++i) 
-	{   
-		printf("0x%02x ", requestMsg[i]);
-	}   
-	printf("\n"); 
-
-	if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf) != 0)
+	if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf, 4) != 0)
 	{
 		printf("Error in sendNcsiCommand Request update\n");
 	}
 
-	printf("Response Payload:\n");
-	for (int i=0; i<100; ++i)
-	{  
-		printf("0x%02x ", recvbuf[i]);
-	}  
-	printf("\n");
+        responsePtr = reinterpret_cast<pldm_msg*>((recvbuf+30));
 
-/*
-	auto resp = reinterpret_cast<pldm_msg*>(ncsi_data); 
 	rc = decode_fw_request_update_resp(
-	     resp, ncsi_data_len, &cc, &val1, &val2);
+	     responsePtr, payload_size, &cc, &val1, &val2);
 
 	if (rc != PLDM_SUCCESS || cc != PLDM_SUCCESS)
 	{
-	     std::cerr << "Response Message Error: "
+	     std::cerr << "Request update command : Response Message Error: "
 	     << "rc=" << rc << ",cc=" << (int)cc << std::endl;
 	     return -1;
-	} */
+	} 
 
 	for(int i=0; i<pFwPkgHdr->componentImageCnt; i++)
 	{ 
@@ -919,8 +907,6 @@ int main()
 
 		size_t payload_size = PLDM_COMMON_REQ_LEN + offsetof(PLDM_PassComponentTable_t, versionString) +
 			pComp->versionStringLength;
-
-		printf("payload_size : %d\n", payload_size);
 
 	        uint8_t requestMsg[sizeof(pldm_msg_hdr) + payload_size];        
 	        auto request = reinterpret_cast<pldm_msg*>(requestMsg);
@@ -930,38 +916,21 @@ int main()
 				pComp->versionStringType, pComp->versionStringLength,
 				(uint8_t*)pComp->versionString, pComp->versionStringLength, request);                    
 
-		printf("RC1 = %d\n", rc);
 
-		printf("Request Payload:\n");
-		for (int i = 0; i < payload_size; ++i) 
-		{   
-			printf("0x%02x ", requestMsg[i]);
-		}   
-		printf("\n"); 
-
-
-		if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf) != 0)
+		if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf, 7) != 0)
 		{
 			printf("Error in sendNcsiCommand - pass comp table \n");
 		}
 
-		printf("Response Payload:\n");
-		for (int i=0; i<100; ++i)
-		{  
-		   printf("0x%02x ", recvbuf[i]);
-		}  
-        	printf("\n");
-
-/*		auto resp = reinterpret_cast<pldm_msg*>(ncsi_data);
-		rc = decode_fw_pass_component_table_resp(resp, ncsi_data_len, &cc, &comp_res, &comp_rescode);
+                responsePtr = reinterpret_cast<pldm_msg*>((recvbuf+30));
+		rc = decode_fw_pass_component_table_resp(responsePtr, payload_size, &cc, &comp_res, &comp_rescode);
 		if (rc != PLDM_SUCCESS || cc != PLDM_SUCCESS)
 		{
-		     std::cerr << "Response Message Error: " 
+		     std::cerr << "Pass Comp Table : Response Message Error: " 
                      << "rc=" << rc << ",cc=" << (int)cc << std::endl;
 		     return -1;
-		} */
+		} 
 	}  
-
 
 	for(int i=0; i<pFwPkgHdr->componentImageCnt; i++)
 	{ 
@@ -973,10 +942,34 @@ int main()
 			return -1;
 		}
 
-		size_t payload_size = PLDM_COMMON_REQ_LEN + offsetof(PLDM_PassComponentTable_t, versionString) +
-			pComp->versionStringLength;
+		PLDM_UpdateComponent_t *pCmdPayload =
+			(PLDM_UpdateComponent_t *)&(pldmReq);
 
-		printf("payload_size : %d\n", payload_size);
+		genReqCommonFields(PLDM_TYPE_FIRMWARE_UPDATE, CMD_UPDATE_COMPONENT, &(pldmReq.common[0]));
+
+		pCmdPayload->_class = pComp->class1;
+		pCmdPayload->id = pComp->id;
+		pCmdPayload->classIndex = 0;  
+		pCmdPayload->compStamp = pComp->compStamp;
+		pCmdPayload->compSize = pComp->size;
+		pCmdPayload->updateOptions = pComp->options;
+		pCmdPayload->versionStringType = pComp->versionStringType;
+		pCmdPayload->versionStringLength  = pComp->versionStringLength;
+
+		if (pCmdPayload->versionStringLength > MAX_VERSION_STRING_LEN) {
+			pCmdPayload->versionStringLength = MAX_VERSION_STRING_LEN;
+			printf("Update Component : version length(%d) exceeds max (%d)",
+					pCmdPayload->versionStringLength, MAX_VERSION_STRING_LEN);
+		}
+		memcpy(pCmdPayload->versionString, pComp->versionString,
+				pCmdPayload->versionStringLength);
+
+		pldmReq.payload_size = PLDM_COMMON_REQ_LEN +
+			offsetof(PLDM_UpdateComponent_t, versionString) +
+			pCmdPayload->versionStringLength;
+
+		size_t payload_size = PLDM_COMMON_REQ_LEN + offsetof(PLDM_UpdateComponent_t, versionString) +
+			pComp->versionStringLength;
 
 	        uint8_t requestMsg[sizeof(pldm_msg_hdr) + payload_size];        
 	        auto request = reinterpret_cast<pldm_msg*>(requestMsg);
@@ -987,36 +980,21 @@ int main()
 				(uint8_t*)pComp->versionString, pComp->versionStringLength, request);                    
 
 
-		printf("RC1 = %d\n", rc);
-
-		printf("Request Payload:\n");
-		for (int i = 0; i < payload_size; ++i) 
-		{   
-			printf("0x%02x ", requestMsg[i]);
-		}   
-		printf("\n"); 
-
-
-		if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf) != 0)
+		if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf, 4) != 0)
 		{
 			printf("Error in sendNcsiCommand - update comp \n");
 		}
 
-		printf("Response Payload:\n");
-		for (int i=0; i<100; ++i)
-		{  
-		   printf("0x%02x ", recvbuf[i]);
-		}  
-        	printf("\n");
-
-               // rc = decode_fw_update_component_resp(responsePtr, payloadLength, &cc, &comp_res, &comp_rescode);
-	       /* if (rc != PLDM_SUCCESS || cc != PLDM_SUCCESS)
+                responsePtr = reinterpret_cast<pldm_msg*>((recvbuf+30));
+                rc = decode_fw_update_component_resp(responsePtr, payload_size, &cc, &comp_res, &comp_rescode, &update_options_flag, 
+                                                     &EstimatedTimeBefore_sending);
+	        if (rc != PLDM_SUCCESS || cc != PLDM_SUCCESS)
 	       {
-	       std::cerr << "Response Message Error: "
-	        << "rc=" << rc << ",cc=" << (int)cc << std::endl;
-	       return -1;
-	       } */
-	}  
+	           std::cerr << "Update Comp : Response Message Error: "
+	           << "rc=" << rc << ",cc=" << (int)cc << std::endl;
+	           return -1;
+	       } 
+	} 
 
 	// FW data transfer
 	int loopCount = 0;
@@ -1029,25 +1007,25 @@ int main()
 	while (idleCnt < (waitTOsec * 1000 /SLEEP_TIME_MS) ) {
                 printf("\n04 QueryPendingNcPldmRequestOp, loop=%d\n", loopCount);
 
-		if(sendNcsiCommand(opcode1, 0, NULL, recvbuf) != 0)
+		if(sendNcsiCommand(opcode1, 0, NULL, recvbuf, 4) != 0)
 		{
 			printf("Error in sendNcsiCommand - FW Data Transfer \n");
 		}
 
-		printf("FW Data Transfer Response Payload:\n");
+/*		printf("FW Data Transfer Response Payload:\n");
 		for (int i=0; i<100; ++i)
 		{  
 		   printf("0x%02x ", recvbuf[i]);
 		}  
         	printf("\n");
 
-                printf("Fw Comp code  = %x\n", recvbuf[37]);
+                printf("Fw Comp code  = %x\n", recvbuf[37]); */
 
 		pldmCmd = ncsiGetPldmCmd(recvbuf, &pldmReq);
 		if (pldmCmd == -1) {
-			//    printf("No pending command, loop %d\n", idleCnt);
+			 printf("No pending command, loop %d\n", idleCnt);
 			//sleep(SLEEP_TIME_MS); // wait some time and try again
-                        sleep(1);
+                        //sleep(1);
 			idleCnt++;
 			continue;
 		} else {
@@ -1061,18 +1039,21 @@ int main()
 			loopCount++;
 			waitcycle = 0;
 			pldmCmdStatus = pldmFwUpdateCmdHandler(pFwPkgHdr, &pldmReq, pldmRes);
+			printf("\n FW Update Cmd Handler :\n");
 
-			if(sendNcsiCommand(opcode2, pldmRes->resp_size, pldmRes->common, recvbuf) != 0)
+                        printf("Resp size = %d\n", pldmRes->resp_size);
+			if(sendNcsiCommand(opcode2, pldmRes->resp_size, pldmRes->common, recvbuf, 4) != 0)
 			{
 				printf("Error in sendNcsiCommand- FM Update Cmd Handler \n");
+                                break;
 			}
 
-			printf("FW Update Cmd Handler Response Payload:\n");
+		/*	printf("FW Update Cmd Handler Response Payload:\n");
 			for (int i=0; i<100; ++i)
 			{  
 				printf("0x%02x ", recvbuf[i]);
 			}  
-			printf("\n");
+			printf("\n"); */
 
 			if ((pldmCmd == CMD_APPLY_COMPLETE) || (pldmCmdStatus == -1))
 				break;
@@ -1086,21 +1067,21 @@ int main()
 		}
 	}
 
-
 	// only activate FW if update loop exists with good status
 	if (!pldmCmdStatus && (pldmCmd == CMD_APPLY_COMPLETE)) {
 		// update successful,  activate FW
-
+  
+                printf("APPLY Complete command:\n");
 	        size_t payload_size = PLDM_COMMON_REQ_LEN + sizeof(PLDM_ActivateFirmware_t);
 
 	        uint8_t requestMsg[sizeof(pldm_msg_hdr) + payload_size];        
 	        auto request = reinterpret_cast<pldm_msg*>(requestMsg);
 
                 uint8_t selfCont_Activation_req = 0;
-/*                rc = encode_fw_activate_firmware_req(instanceId, selfCont_Activation_req, request);
+                rc = encode_fw_activate_firmware_req(instanceId, selfCont_Activation_req, request);
 
                 
-		if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf) != 0)
+		if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf, 4) != 0)
 		{
 			printf("Error in sendNcsiCommand - Activate firmware \n");
 		}
@@ -1110,7 +1091,7 @@ int main()
 		{  
 		   printf("0x%02x ", recvbuf[i]);
 		}  
-        	printf("\n"); */
+        	printf("\n"); 
 
 	} else {
 		printf("PLDM cmd (%d) failed (status %d), abort update\n",
@@ -1125,7 +1106,7 @@ int main()
                 rc = encode_fw_cancel_update_req(instanceId, request);
 
                 
-		if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf) != 0)
+		if(sendNcsiCommand(opcode, payload_size, requestMsg, recvbuf, 4) != 0)
 		{
 			printf("Error in sendNcsiCommand - Cancel Update \n");
 		}
@@ -1138,7 +1119,10 @@ int main()
         	printf("\n");
 	}
 
+       if (pldmRes)
+           free(pldmRes);
 
-        
+	if (pFwPkgHdr)
+		free_pldm_pkg_data(&pFwPkgHdr);
 	return 0;
 }

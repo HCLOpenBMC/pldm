@@ -24,11 +24,13 @@
 #define PLDM_CMD_OFFSET 2
 #define TFLAG_STATRT_END 0x05
 #define PLDM_IID_OFFSET       0
+#define PLDM_TYPE_OFFSET      1  // pldm type
+
 #define PLDM_RESP_MASK       0x7f
 #define PLDM_CC_OFFSET        3
 
 #define PAYLOAD_LEN 21
-#define PAYLOAD_START 38
+#define PAYLOAD_START 34
 
 #define SLEEP_TIME_MS  200
 #define MAX_WAIT_CYCLE 1000
@@ -40,6 +42,8 @@
 #define MAX_WAIT_CYCLE 1000
 #define NUM_PLDM_UPDATE_CDMS 14
 
+static uint8_t  gPldm_iid = 0; 
+
 // Update Agent (UA) timeout value, in seconds
 // as defined in DMTF DSP0267
 // https://www.dmtf.org/sites/default/files/standards/documents/DSP0267_1.1.0.pdf
@@ -47,7 +51,7 @@ typedef enum
 {   
     UA_T1 = 5,
     UA_T2 = 90,
-    UA_T3 = 180, //default value for  PLDM_STATE_CHANGE_TIMEOUT_S
+    UA_T3 = 900, //default value for  PLDM_STATE_CHANGE_TIMEOUT_S  --//KUMAR previous value - 180.
     UA_T4 = 5,
     UA_T5 = 5,
 } UA_TO_E;
@@ -67,6 +71,17 @@ enum
   CC_NOT_SUPP_IN_CURR_STATE = 0xD5,
   CC_UNSPECIFIED_ERROR = 0xFF,
 };
+
+
+// PLDM types, defined in DMTF DSP0245 v1.2.0
+typedef enum pldm_type {
+  PLDM_TYPE_MSG_CTRL_AND_DISCOVERY       = 0,
+  PLDM_TYPE_SMBIOS                       = 1,
+  PLDM_TYPE_PLATFORM_MONITORING_AND_CTRL = 2,
+  PLDM_TYPE_BIOS_CTRL_AND_CFG            = 3,
+  PLDM_TYPE_FRU_DATA                     = 4,
+  PLDM_TYPE_FIRMWARE_UPDATE              = 5,
+} PldmType;
 
 
 // PLDM Firmware update commands
@@ -224,6 +239,31 @@ typedef struct {
   uint8_t  versionStringLength;
   char     versionString[MAX_VERSION_STRING_LEN];
 } __attribute__((packed)) PLDM_PassComponentTable_t;
+
+
+// cdb for pldm cmd 0x14 Update Component
+typedef struct {
+  uint16_t _class;
+  uint16_t id;
+  uint8_t  classIndex;
+  uint32_t compStamp;
+  uint32_t compSize;
+  uint32_t updateOptions;
+  uint8_t  versionStringType;
+  uint8_t  versionStringLength;
+  char     versionString[MAX_VERSION_STRING_LEN];
+} __attribute__((packed)) PLDM_UpdateComponent_t;
+  
+typedef struct {
+  uint8_t completionCode;
+  uint8_t componentCompatibilityResponse;
+  uint8_t componentCompatibilityResponseCode;
+  uint32_t updateOptionFlagEnabled;
+  uint16_t estimatedTimeBeforeSendingRequestFWdata;
+} __attribute__((packed)) PLDM_UpdateComponent_Response_t;
+
+
+
 
 // Component image Information, defined in DSP0267 Table 5
 // Most of this record is fixed length except for the version string
