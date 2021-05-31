@@ -8,6 +8,7 @@ headers = [
   'states.h',
   'state_set.h',
   'fru.h',
+  'fw_update.h',
   'utils.h',
   'pdr.h'
 ]
@@ -18,6 +19,7 @@ sources = [
   'bios.c',
   'bios_table.c',
   'fru.c',
+  'fw_update.c',
   'utils.c',
   'pdr.c'
 ]

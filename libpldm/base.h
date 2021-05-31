@@ -18,6 +18,7 @@ enum pldm_supported_types {
 	PLDM_PLATFORM = 0x02,
 	PLDM_BIOS = 0x03,
 	PLDM_FRU = 0x04,
+	PLDM_FIRMWARE_UPDATE = 0x05,
 	PLDM_OEM = 0x3F,
 };
 
