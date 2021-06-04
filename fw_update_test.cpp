@@ -1407,7 +1407,7 @@ int main()
 		{  
 		   printf("0x%02x ", recvbuf[i]);
 		}  
-        	printf("\n"); */
+        	printf("...\n"); */
 	}
 
        if (pldmRes)
